@@ -6,6 +6,7 @@ from dataset import *
 from arcitect import *
 from Enc_Dec import *
 from models import *
+from tokenizer import *
 
 # TASK: French (source) -> English (target)
 
@@ -26,23 +27,36 @@ def tensorsFromPair(pair):
     target_tensor = tensorFromSentence(output_lang, pair[1])
     return torch.stack((input_tensor, target_tensor))
 
+from torch.utils.data import TensorDataset
 
 def get_train_dataset(pairs):
-  attn_idx = torch.arange(len(pairs))
-  tensor_pairs = [tensorsFromPair(pairs[i]) for i in range(len(pairs))]
-  a = torch.stack((tensor_pairs))
-  train_data = TensorDataset(a, attn_idx)
+  tensor_pairs = []
+  for pair in pairs:
+    source = torch.unsqueeze(torch.tensor(tokenizer.encode(pair[0]).ids), dim=-1)
+    target = torch.unsqueeze(torch.tensor(tokenizer.encode(pair[1]).ids), dim=-1)
+    tensor_pairs.append(torch.stack([source, target]))
+  tensor_pairs = torch.stack((tensor_pairs))
+
+  train_data = TensorDataset(tensor_pairs, attn_idx)
   return train_data
 
 def get_un_dataset(pairs):
-  tensor_pairs = [tensorsFromPair(pairs[i]) for i in range(len(pairs))]
-  a = torch.stack((tensor_pairs))
-  un_data = TensorDataset(a)
+  tensor_pairs = []
+  for pair in pairs:
+    source = torch.unsqueeze(torch.tensor(tokenizer.encode(pair[0]).ids), dim=-1)
+    target = torch.unsqueeze(torch.tensor(tokenizer.encode(pair[1]).ids), dim=-1)
+    tensor_pairs.append(torch.stack([source, target]))
+  tensor_pairs = torch.stack((tensor_pairs))
+
+  un_data = TensorDataset(tensor_pairs)
   return un_data
+
+
 
 #load data
 input_lang, output_lang, pairs = prepareData('eng', 'fra', True)
 print(random.choice(pairs))
+
 
 
 # to do: split data
