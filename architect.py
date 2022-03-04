@@ -45,33 +45,27 @@ class Architect(object):
     return batch_loss
 
   def _compute_unrolled_enc_dec_model(self, train_inputs, model1_lr, idxs, criterion):
+    #step 1 (generate unrolled encoder and decoder)
     batch_loss = self.loss1(train_inputs, idxs, criterion)
     #Unrolled model
     theta_enc = _concat(self.model1.enc.parameters()).data
-    #print(theta_enc, len(theta_enc))
     try:
         moment = _concat(model1.enc_optim.state[v]['momentum_buffer'] for v in self.model1.enc.parameters()).mul_(self.model1_mom)
     except:
         moment = torch.zeros_like(theta_enc)
-    #print(moment)
     dtheta = _concat(torch.autograd.grad(batch_loss, self.model1.enc.parameters(), retain_graph = True )).data + self.model1_wd*theta_enc
-    #print(dtheta)
     # # convert to the model
     unrolled_enc = self._construct_enc_from_theta(theta_enc.sub(model1_lr, moment+dtheta))
-    #print(unrolled_enc)
 
     theta_dec = _concat(self.model1.dec.parameters()).data
-    #print(theta_dec, len(theta_dec))
     try:
         moment = _concat(model1.dec_optim.state[v]['momentum_buffer'] for v in self.model1.dec.parameters()).mul_(self.model1_mom)
     except:
         moment = torch.zeros_like(theta_dec)
-    #print(moment)
     dtheta = _concat(torch.autograd.grad(batch_loss, self.model1.dec.parameters(), retain_graph = True )).data + self.model1_wd*theta_dec
     print(dtheta)
     # # convert to the model
     unrolled_dec = self._construct_dec_from_theta(theta_dec.sub(model1_lr, moment+dtheta))
-    #print(unrolled_dec)
 
     return unrolled_enc, unrolled_dec
 
@@ -93,7 +87,6 @@ class Architect(object):
     assert offset == len(theta)
     model_dict.update(params)
     enc_new.load_state_dict(model_dict)
-    # print([enc_new.state_dict()])
     return enc_new
 
   def _construct_dec_from_theta(self, theta):
@@ -112,9 +105,9 @@ class Architect(object):
     assert offset == len(theta)
     model_dict.update(params)
     dec_new.load_state_dict(model_dict)
-    # print([enc_new.state_dict()])
     return dec_new
-
+  
+  # calculate loss for step 2
   def loss2(self, un_inputs):
     batch_loss = 0
 
@@ -124,7 +117,7 @@ class Architect(object):
       decoder_hidden = self.model1.dec.initHidden()
       print('forward pass through decoder')
      
-      
+      #generate pseudo targets by a forward pass through decoder
       dec_soft_idxs = []
       decoder_outputs = []
       for di in range(MAX_LENGTH):
@@ -134,7 +127,7 @@ class Architect(object):
           decoder_input = topi.squeeze().detach()  # detach from history as input
           #print('decoder output:', decoder_output.size())
           dec_soft_idx, dec_idx = torch.max(decoder_output, dim = -1, keepdims = True)
-          dec_soft_idxs.append(dec_soft_idx)
+          dec_soft_idxs.append(dec_soft_idx) #save the soft indexes
           print('dec soft idx size:', dec_soft_idx)
           #print(dec_soft_idxs)
           decoder_outputs.append(torch.unsqueeze(torch.argmax(decoder_output), dim = -1))
@@ -146,16 +139,14 @@ class Architect(object):
       decoder_outputs = torch.stack(decoder_outputs)
 
       #print(decoder_outputs.size())
-      
+      #gumbel softmax to generate input to encoder for creating pseudo inputs. 
       onehot_input = torch.zeros(decoder_outputs.size(0), vocab)
-      #print(onehot_input.size())
       index_tensor = decoder_outputs
-      #print(index_tensor.size())
       dec_soft_idxs = (torch.stack(dec_soft_idxs))
       onehot_input = onehot_input.scatter_(1, index_tensor, 1.).float().detach() + (dec_soft_idxs).sum() - (dec_soft_idxs).sum().detach()
       print(onehot_input.size(), onehot_input[0])
 
-      enc_hidden, enc_outputs = self.model1.enc_forward(onehot_input)
+      enc_hidden, enc_outputs = self.model1.enc_forward(onehot_input) #forward pass through encoder.
       
       pseudo_target = decoder_outputs
       pseudo_input = enc_outputs
@@ -173,12 +164,12 @@ class Architect(object):
       
   def step(self, train_inputs, model1_lr, A, idxs, criterion, model2_lr, model2_optim):
       self.A_optim.zero_grad()
-      unrolled_enc, unrolled_dec = self._compute_unrolled_enc_dec_model(train_inputs, model1_lr, idxs, criterion)
+      unrolled_enc, unrolled_dec = self._compute_unrolled_enc_dec_model(train_inputs, model1_lr, idxs, criterion) #step1
       device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
       unrolled_enc.to(device)
       unrolled_enc.train()
       unrolled_dec.to(device)
       unrolled_dec.train()
       #replace unlabled dataset
-      unrolled_model2 = self._compute_unrolled_model2(train_inputs, unrolled_enc, unrolled_dec, idxs, model2_lr, model2_optim)
+      unrolled_model2 = self._compute_unrolled_model2(train_inputs, unrolled_enc, unrolled_dec, idxs, model2_lr, model2_optim)#step 2
 
