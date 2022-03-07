@@ -50,7 +50,6 @@ def loss2(un_inputs, model1, model2, batch_size, vocab):
       index_tensor = decoder_outputs
       dec_soft_idxs = (torch.stack(dec_soft_idxs))
       onehot_input = onehot_input.scatter_(1, index_tensor, 1.).float().detach() + (dec_soft_idxs).sum() - (dec_soft_idxs).sum().detach()
-      print(onehot_input.size(), onehot_input[0])
 
       enc_hidden, enc_outputs = model1.enc_forward(onehot_input)
       
@@ -77,17 +76,14 @@ def loss2(un_inputs, model1, model2, batch_size, vocab):
       # gumbel softmax 
       input_to_model2 = torch.stack(decoder_outputs)
       onehot_input = torch.zeros(input_to_model2.size(0), vocab)
-      print(onehot_input.size())
       index_tensor = input_to_model2
-      #print(index_tensor.size())
       dec_soft_idxs = (torch.stack(dec_soft_idxs))
       onehot_input = onehot_input.scatter_(1, index_tensor, 1.).float().detach() + (dec_soft_idxs).sum() - (dec_soft_idxs).sum().detach()
-      print(onehot_input.size(), onehot_input[0])
-
-      pseudo_input = onehot_input 
+    
+      pseudo_source = onehot_input  #pseudo source
 
       #model2 forward pass
-      enc_hidden, enc_outputs = model2.enc_forward(pseudo_input)
+      enc_hidden, enc_outputs = model2.enc_forward(pseudo_source)
       loss = model2.dec_forward(pseudo_target, enc_hidden) 
       batch_loss += loss 
     
