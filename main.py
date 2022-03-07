@@ -67,7 +67,7 @@ model1_optim = SGD(model1.parameters(), lr=model1_lr)
 model2_optim = SGD(model2.parameters(), lr=model2_lr)
 
 
-#split 80% train 10% val 10% test
+#split 90% train out of which 50% unlabeled, 10% val
 n = len(pairs)
 print(n)
 train_index = int(train_portion * n)
@@ -76,19 +76,19 @@ valid_index = int(0.5 * train_index)
 print(valid_index)
 train_portion = pairs[0:valid_index]
 un_portion = pairs[valid_index : train_index]
-test_portion = pairs[train_index:]
-print(len(train_portion), len(un_portion), len(test_portion))
+val_portion = pairs[train_index:]
+print(len(train_portion), len(un_portion), len(val_portion))
 
 train_data = get_train_dataset(train_portion[0:4], tokenizer)
 un_data = get_un_dataset(un_portion[0:4], tokenizer)
-test_data = get_test_dataset(test_portion[0:4], tokenizer)
+val_data = get_val_dataset(test_portion[0:4], tokenizer)
 
 
 
 train_dataloader = DataLoader(train_data, sampler=RandomSampler(train_data), 
                         batch_size=batch_size, pin_memory=True, num_workers=0)
 
-test_dataloader = DataLoader(test_data, sampler=RandomSampler(test_data), 
+val_dataloader = DataLoader(val_data, sampler=RandomSampler(test_data), 
                       batch_size=batch_size, pin_memory=True, num_workers=0)
 
 un_dataloader = DataLoader(un_data, sampler=RandomSampler(un_data), 
@@ -134,13 +134,12 @@ def train(epoch, train_dataloader):
       
       model1_optim.step()
       
-      # ######################################################################
-      # # Update model2 model
+      # Update model2 model
       model2_optim.zero_grad()
-      #un inputs
-      loss_model2 = loss2(train_inputs, model1, model2, batch_size, vocab)
+    
+      loss_model2 = loss2(un_inputs, model1, model2, batch_size, vocab)
       
-      # # store the batch loss
+      # store the batch loss
       batch_loss_model2 += loss_model2.item()
 
       loss_model2.backward()

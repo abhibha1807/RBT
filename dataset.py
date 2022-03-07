@@ -168,7 +168,7 @@ def get_un_dataset(pairs, tokenizer):
   print(un_data)
   return un_data
 
-def get_test_dataset(pairs, tokenizer):
+def get_val_dataset(pairs, tokenizer):
   tensor_pairs = []
   for pair in pairs:
     source = torch.unsqueeze(torch.tensor(tokenizer.encode(pair[0]).ids), dim=-1)

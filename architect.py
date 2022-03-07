@@ -30,24 +30,19 @@ class Architect(object):
     batch_loss = loss1(train_inputs, self.model1, idxs, self.A,  self.batch_size, self.vocab)
     #Unrolled model
     theta = _concat(self.model1.parameters()).data
-    # print(theta, len(theta))
     try:
         moment = _concat(model1_optim.state[v]['momentum_buffer'] for v in self.model1.parameters()).mul_(self.model1_mom)
     except:
         moment = torch.zeros_like(theta)
-    # print(moment)
     dtheta = _concat(torch.autograd.grad(batch_loss, self.model1.parameters(), retain_graph = True )).data + self.model1_wd*theta
-    # print(dtheta)
     # convert to the model
     unrolled_model1 = self._construct_model1_from_theta(theta.sub(model1_lr, moment+dtheta))
-    #print(unrolled_enc)
     return unrolled_model1
 
 
   def _construct_model1_from_theta(self, theta):
     model1_dict = self.model1.state_dict()
   
-    # create the new gpt model, input_lang, hidden_size, device
     model1_new = self.model1.new(self.vocab)
     print('model1 new:', model1_new)
 
@@ -61,7 +56,6 @@ class Architect(object):
     assert offset == len(theta)
     model1_dict.update(params)
     model1_new.load_state_dict(model1_dict)
-    #print([model2_new.state_dict()])
     return model1_new
 
 
@@ -69,11 +63,8 @@ class Architect(object):
   def _construct_model2_from_theta(self, theta):
     model2_dict = self.model2.state_dict()
 
-    # create the new gpt model, input_lang, hidden_size, device
     model2_new = self.model2.new(self.vocab)
-    # print('model2 new:', model2_new)
 
-    #encoder update
     params, offset = {}, 0
     for k, v in self.model2.named_parameters():
         v_length = np.prod(v.size())
@@ -83,7 +74,6 @@ class Architect(object):
     assert offset == len(theta)
     model2_dict.update(params)
     model2_new.load_state_dict(model2_dict)
-    #print([model2_new.state_dict()])
     return model2_new
   
   
@@ -191,15 +181,16 @@ class Architect(object):
       unrolled_model2 = self._compute_unrolled_model2(un_inputs, unrolled_model1, idxs, model2_lr, model2_optim)
       print('computed unrolled model2')
       valid_batch_loss = 0
-      #val batch inputs
+      
+      #3rd step
       for i in range(self.batch_size):
-        input_train = val_inputs[i][0]
-        onehot_input = torch.zeros(input_train.size(0), self.vocab)
-        index_tensor = input_train
+        input_val = val_inputs[i][0]
+        onehot_input = torch.zeros(input_val.size(0), self.vocab)
+        index_tensor = input_val
         onehot_input.scatter_(1, index_tensor, 1.)
-        input_train = onehot_input
+        input_val = onehot_input
         print('input valid size:', input_train.size())
-        target_train = val_inputs[i][1]
+        target_val = val_inputs[i][1]
        
         enc_hidden, enc_outputs = unrolled_model2.enc_forward(input_train)
         valid_loss = unrolled_model2.dec_forward(target_train, enc_hidden) 
