@@ -2,40 +2,33 @@ from __future__ import unicode_literals, print_function, division
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from dataset import *
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-#custom class for encoder embedding
-class Enc_Embedding(nn.Module):
-    def __init__(self, vocab, hidden_size=256):
-      super(Enc_Embedding, self).__init__()
-      self.embedding_matrix = torch.rand(vocab, hidden_size)
 
-    def forward(self, onehot_input):
-      emb_vector = torch.matmul(onehot_input, self.embedding_matrix) 
-      return emb_vector
 
 #encoder class
 class EncoderRNN(nn.Module):
     def __init__(self, input_size, hidden_size):
         super(EncoderRNN, self).__init__()
         self.hidden_size = hidden_size
-        self.embedding = Enc_Embedding(input_size, hidden_size)
+        #self.embedding = Enc_Embedding(input_size, hidden_size)
+        self.embedding = nn.Embedding(input_size, hidden_size)
         self.gru = nn.GRU(hidden_size, hidden_size)
 
     
     def forward(self, input, hidden):
-        embedded = self.embedding(input).view(1, 1, -1)
-        output = embedded
+        #embedded = self.embedding(input).view(1, 1, -1)
+        output = input
         output, hidden = self.gru(output, hidden)
         return output, hidden
 
     def initHidden(self):
-        return torch.zeros(1, 1, self.hidden_size, device=device)
+        return torch.zeros(1, 1, self.hidden_size, device='cuda')
 
-      
 
-#decoder class
+
 class AttnDecoderRNN(nn.Module):
     def __init__(self, hidden_size, output_size, dropout_p=0.1, max_length=MAX_LENGTH):
         super(AttnDecoderRNN, self).__init__()
@@ -73,7 +66,6 @@ class AttnDecoderRNN(nn.Module):
 
     def initHidden(self):
         return torch.zeros(1, 1, self.hidden_size, device='cuda')
-
 
   
 
