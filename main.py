@@ -1,5 +1,5 @@
 import utils
-from torch.utils.data import TensorDataset, DataLoader, RandomSampler, SequentialSampler, SubsetRandomSampler
+from torch.utils.data import DataLoader, RandomSampler
 from torch.autograd import Variable
 from dataset import *
 from architect import *
@@ -18,7 +18,7 @@ import time
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 import torch.backends.cudnn as cudnn
 from torch.utils.tensorboard import SummaryWriter
-writer = SummaryWriter('runs/rbt-exp')
+
 import glob
 # TASK: French (source) -> English (target)
 # args 
@@ -29,30 +29,42 @@ print('using device', device)
 
 print('eecuting Attn Decoder')
 parser.add_argument('--begin_epoch', type=float, default=0, help='PC Method begin')
-parser.add_argument('--stop_epoch', type=float, default=20, help='Stop training on the framework')
+parser.add_argument('--stop_epoch', type=float, default=25, help='Stop training on the framework')
 parser.add_argument('--report_freq', type=float, default=10, help='report frequency')
 
-parser.add_argument('--gpu', type=int, default=0, help='gpu device id')
-parser.add_argument('--epochs', type=int, default=50, help='num of training epochs')
-parser.add_argument('--seed', type=int, default=seed_, help='random seed')
+parser.add_argument('--epochs', type=int, default=100, help='num of training epochs')
+
+parser.add_argument('--batch_size', type=int, default=50, help='batch size')
 
 parser.add_argument('--grad_clip', type=float, default=5, help='gradient clipping')
 parser.add_argument('--A_lr', type=float, default=3e-4, help='learning rate for A')
-parser.add_argument('--A_wd', type=float, default=1e-3, help=' weight decay for A')
+#reduce lr 
+# parser.add_argument('--A_lr', type=float, default=1e-6, help='learning rate for A')
 
+parser.add_argument('--A_wd', type=float, default=1e-6, help=' weight decay for A')
 
+parser.add_argument('--gpu', type=int, default=0, help='gpu device id')
+parser.add_argument('--seed', type=int, default=10, help='random seed')
 parser.add_argument('--max_length', type=int, default=10, help='max length of sentences')
-parser.add_argument('--vocabsize', type=int, default=4000, help='total vocab size')
+parser.add_argument('--vocabsize', type=int, default=7000, help='total vocab size')
 parser.add_argument('--save_location', type=str, default='./reading-by-translating/', help='save location')
 parser.add_argument('--min_freq', type=int, default=2, help='min freq of words to be included in vocab')
 parser.add_argument('--train_portion', type=float, default=0.9, help='fraction of dataset for training')
+
 parser.add_argument('--un_portion', type=float, default=0.5, help='fraction of training dataset for creating unlabled dataset')
-parser.add_argument('--batch_size', type=int, default=10, help='batch size')
+
 parser.add_argument('--hidden_size', type=int, default=256, help='hidden size')
-parser.add_argument('--model1_lr', type=float, default=1e-3, help='model1 starting lr')
-parser.add_argument('--model1_lr_min', type=float, default=5e-4, help='model1 min lr')
-parser.add_argument('--model2_lr', type=float, default=1e-3, help='model2 starting lr')
-parser.add_argument('--model2_lr_min', type=float, default=5e-4, help='model2 min lr')
+
+# parser.add_argument('--model1_lr', type=float, default=1e-3, help='model1 starting lr')
+# parser.add_argument('--model1_lr_min', type=float, default=5e-4, help='model1 min lr')
+# parser.add_argument('--model2_lr', type=float, default=1e-3, help='model2 starting lr')
+# parser.add_argument('--model2_lr_min', type=float, default=5e-4, help='model2 min lr')
+
+#reduce lr
+parser.add_argument('--model1_lr', type=float, default=1e-4, help='model1 starting lr')
+parser.add_argument('--model1_lr_min', type=float, default=5e-6, help='model1 min lr')
+parser.add_argument('--model2_lr', type=float, default=1e-4, help='model2 starting lr')
+parser.add_argument('--model2_lr_min', type=float, default=5e-6, help='model2 min lr')
 
 parser.add_argument('--model1_wd', type=float, default=0, help='model1 weight decay')
 parser.add_argument('--model2_wd', type=float, default=0, help='model2 weight decay')
@@ -84,8 +96,10 @@ model2_mom = args.model2_mom
 A_wd = args.A_wd
 report_freq = args.report_freq
 
-args.save = 'search-{}-{}'.format(args.save, time.strftime("%Y%m%d-%H%M%S"))
+args.save = '{}-{}'.format(args.save, time.strftime("%Y%m%d-%H%M%S"))
 create_exp_dir(args.save, scripts_to_save=glob.glob('*.py'))
+print('saving in:', str(args.save))
+writer = SummaryWriter('runs/'+str(args.save))
 
 log_format = '%(asctime)s %(message)s'
 logging.basicConfig(stream=sys.stdout, level=logging.INFO,
@@ -117,7 +131,7 @@ tokenizer = get_tokenizer(pairs, max_length, min_freq, vocabsize, save_location)
 
 vocab = tokenizer.get_vocab_size()
 print('vocab:', vocab)
-criterion = nn.NLLLoss()
+criterion = nn.NLLLoss(ignore_index = tokenizer.token_to_id("pad"), reduction='none')
 criterion = criterion.cuda()
 model1 = Model1(vocab, vocab, criterion)
 model2 = Model2( vocab,  vocab, criterion)
@@ -148,9 +162,9 @@ print(len(train_portion), len(un_portion), len(valid_portion))
 logging.info('dataset')
 
 
-train_data = get_train_dataset(train_portion[0:50], tokenizer)
-un_data = get_un_dataset(un_portion[0:50], tokenizer)
-valid_data = get_valid_dataset(valid_portion[0:50], tokenizer)
+train_data = get_train_dataset(train_portion, tokenizer)
+un_data = get_un_dataset(un_portion, tokenizer)
+valid_data = get_valid_dataset(valid_portion, tokenizer)
 
 logging.info(f"{len(train_data):^7} | { len(un_data):^7} | { len(valid_data):^7}")
 
@@ -175,7 +189,6 @@ architect = Architect(model1, model1_mom, model1_wd, A, A_lr, A_wd, device, mode
 
 def train(epoch, train_dataloader, un_dataloader, valid_dataloader, architect, A, model1, model2, model1_optim, model2_optim, model1_lr, model2_lr, instances_gone):
 
-
   batch_loss_model1, batch_loss_model2, batch_count = 0, 0, 0
 
     
@@ -192,15 +205,12 @@ def train(epoch, train_dataloader, un_dataloader, valid_dataloader, architect, A
 
 
     if args.begin_epoch <= epoch <= args.stop_epoch:
-      logging.info('in architect')
       architect.step(train_inputs, un_inputs, val_inputs, model1_lr, A, idxs, criterion, model2_lr, model2_optim, model1_optim)
   
     if epoch <= args.stop_epoch:
       
-      logging.info('otherwise')
       model1_optim.zero_grad()
       loss_model1 = loss1(train_inputs, model1, idxs, A, batch_size, vocab)
-      #print('training loss model1:', loss_model1)
       
       # store the batch loss
       batch_loss_model1 += loss_model1.item()
@@ -213,15 +223,13 @@ def train(epoch, train_dataloader, un_dataloader, valid_dataloader, architect, A
     
     model2_optim.zero_grad()
     loss_model2 = loss2(un_inputs, model1, model2, batch_size, vocab)
-    #print(str(epoch)+'is loss being calculated or not?:', loss_model2)
     batch_loss_model2 += loss_model2.item()
-    #print(str(epoch)+'calculated batch loss model 2:', batch_loss_model2)
     loss_model2.backward()
     nn.utils.clip_grad_norm(model2.parameters(), args.grad_clip)
     model2_optim.step()
 
     instances_gone+= batch_size
-   
+  
     if instances_gone % report_freq == 0:
  
       print('-'*40+'training batch stats after'+str(instances_gone)+'instances'+'-'*40)
@@ -240,34 +248,25 @@ def train(epoch, train_dataloader, un_dataloader, valid_dataloader, architect, A
       logging.info('model1_score'+ str(model1_score))
       logging.info('model2_score'+ str(model2_score))
 
-  
-
   return batch_loss_model1, batch_loss_model2
 
       
 def infer(valid_dataloader, model2, instances_gone):
-
- 
-  softmax = torch.nn.Softmax(-1)
-
+  
   for step, batch_val in enumerate(valid_dataloader):
       
     model2.eval()
     
+    # Input and its attentions
     val_inputs = Variable(batch_val[0], requires_grad=False).cuda()
     
+    # Number of datapoints
     n = val_inputs.size(0)
     valid_batch_loss = 0
     epoch_val_loss = 0
-    
     #val batch inputs
-    for i in range(args.batch_size):
+    for i in range(n):
       input_train = val_inputs[i][0]
-      onehot_input = torch.zeros(input_train.size(0),vocab, device = 'cuda')
-      index_tensor = input_train
-      onehot_input.scatter_(1, index_tensor, 1.)
-      input_train = onehot_input
-      #print('input valid size:', input_train.size())
       target_train = val_inputs[i][1]
       
       enc_hidden, enc_outputs = model2.enc_forward(input_train)
@@ -275,7 +274,9 @@ def infer(valid_dataloader, model2, instances_gone):
       #print('valid loss:', valid_loss)
       epoch_val_loss += valid_loss
       instances_gone+=batch_size
-  
+      
+      ######################################################################################
+
       # the training loss
       if instances_gone % report_freq == 0:
         print('*'*20 + 'batch validation stats'+'*'*20)
@@ -286,10 +287,7 @@ def infer(valid_dataloader, model2, instances_gone):
   
 
     
-     
-      #break
-
-#  early_stopping = EarlyStopping(path = args.save)
+ 
 
 start_epoch = 0
 
@@ -331,11 +329,14 @@ for epoch in range(start_epoch, args.epochs):
     
     scheduler_model2.step()
     
-    
    
+    # logging.info the attention weights and inspect it
     if epoch % 5 == 0:
+        print('SAVING MODELS')
+        torch.save(model1, args.save+'/model1.pt')
+        torch.save(model2, args.save+'/model2.pt')
         logging.info(str(("Attention Weights A : ", A.alpha)))
-    # break
+   
     
 
    
