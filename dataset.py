@@ -1,6 +1,7 @@
+from __future__ import unicode_literals, print_function, division
+
 import re
 import torch
-from __future__ import unicode_literals, print_function, division
 from io import open
 import unicodedata
 import torch
@@ -72,7 +73,6 @@ def readLangs(lang1, lang2, reverse=False):
 
     return input_lang, output_lang, pairs
 
-    MAX_LENGTH = 10
 
 eng_prefixes = (
     
@@ -141,18 +141,14 @@ def tensorsFromPair(pair, input_lang, output_lang):
 
 def get_train_dataset(pairs, tokenizer):
   attn_idx = torch.arange(len(pairs))
-  print(attn_idx)
   tensor_pairs = []
   for pair in pairs:
     source = torch.unsqueeze(torch.tensor(tokenizer.encode(pair[0]).ids), dim=-1)
     target = torch.unsqueeze(torch.tensor(tokenizer.encode(pair[1]).ids), dim=-1)
-    print(pair[0], pair[1])
-    print(source, target)
+
     tensor_pairs.append(torch.stack([source, target]))
-  print(tensor_pairs)
-  print(torch.stack((tensor_pairs)).size())
+
   train_data = TensorDataset(torch.stack((tensor_pairs)), attn_idx)
-  print(train_data)
   return train_data
 
 def get_un_dataset(pairs, tokenizer):
@@ -160,26 +156,20 @@ def get_un_dataset(pairs, tokenizer):
   for pair in pairs:
     source = torch.unsqueeze(torch.tensor(tokenizer.encode(pair[0]).ids), dim=-1)
     target = torch.unsqueeze(torch.tensor(tokenizer.encode(pair[1]).ids), dim=-1)
-    print(pair[0], pair[1])
-    print(source, target)
+
     tensor_pairs.append(torch.stack([source, target]))
-  print(tensor_pairs)
   un_data = TensorDataset(torch.stack((tensor_pairs)))
-  print(un_data)
   return un_data
 
-def get_val_dataset(pairs, tokenizer):
+def get_valid_dataset(pairs, tokenizer):
   tensor_pairs = []
   for pair in pairs:
     source = torch.unsqueeze(torch.tensor(tokenizer.encode(pair[0]).ids), dim=-1)
     target = torch.unsqueeze(torch.tensor(tokenizer.encode(pair[1]).ids), dim=-1)
-    print(pair[0], pair[1])
-    print(source, target)
+
     tensor_pairs.append(torch.stack([source, target]))
-  print(tensor_pairs)
-  test_data = TensorDataset(torch.stack((tensor_pairs)))
-  print(test_data)
-  return test_data
+  valid_data = TensorDataset(torch.stack((tensor_pairs)))
+  return valid_data
   
 
 
