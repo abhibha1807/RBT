@@ -5,14 +5,17 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 class Embedding_(nn.Module):
   def __init__(self, embedding_layer):
     super(Embedding_, self).__init__()
-    self.embedding = embedding_layer
+    self.embedding = embedding_layer.to(device)
 
   def forward(self, mask):
-   
+    # print('in ebedding forward', mask.ndim, mask)
+    # print('embedding mat dim:', self.embedding.weight.size())
+    # if mask.ndim == 1:
     if  mask.dtype == torch.long:
         #assert mask.dtype == torch.long
         return self.embedding(mask)
     
+    # assert mask.dtype == torch.float
     # here the mask is the one-hot encoding
     else:
       return torch.matmul(mask, self.embedding.weight)
@@ -21,19 +24,23 @@ class Embedding_(nn.Module):
 class Model2(nn.Module):
   def __init__(self, input_size, output_size, criterion, enc_hidden_size=256, dec_hidden_size=256):
     super(Model2, self).__init__()
-    self.enc = EncoderRNN(input_size, enc_hidden_size)
-    self.dec = AttnDecoderRNN(dec_hidden_size, output_size)
+    self.enc = EncoderRNN(input_size, enc_hidden_size).requires_grad_()
+    # self.dec = DecoderRNN(dec_hidden_size, output_size)
+    self.dec = AttnDecoderRNN(dec_hidden_size, output_size).requires_grad_()
     self.criterion = criterion
-    self.embedding = Embedding_(self.enc.embedding)
+    self.embedding = Embedding_(self.enc.embedding).requires_grad_()
+    #scale embeddings
+    # self.enc_emb_scale = self.encoder.embed_scale #TODO
 
   def enc_forward(self, input):
-  
+
     encoder_hidden = self.enc.initHidden()
     input_length = input.size(0)
     encoder_outputs = torch.zeros(input_length, self.enc.hidden_size, device=device)# how to pass max_length
     
     for ei in range(input_length):
-    
+      # print('input_ei:', input[ei])
+      # inp_emb = self.embedding(input_ids)/self.enc_emb_scale
       embedded = self.embedding(input[ei]).view(1, 1, -1)
       encoder_output, encoder_hidden = self.enc(embedded, encoder_hidden)
       encoder_outputs[ei] = encoder_output[0, 0]
@@ -42,7 +49,7 @@ class Model2(nn.Module):
 
   
   def dec_forward(self, target, encoder_hidden, encoder_outputs):
- 
+  
     target_length = target.size(0)
     #print(target)
     decoder_input = torch.tensor([[SOS_token]], device=device) #where to put SOS_token
@@ -64,13 +71,13 @@ class Model2(nn.Module):
     new = Model2(vocab, vocab, self.criterion).to(device)
     #print(new)
     new.load_state_dict(self.state_dict())
-    #print('after loading:', dec_new)
+  
     return new
 
 
   def generate(self, input, tokenizer, vocab):
     print('generating')
-  
+   
     input_train = input
     enc_hidden, enc_outputs = self.enc_forward(input_train)
     decoder_input = torch.tensor([[SOS_token]], device=device) #where to put SOS_token
@@ -86,9 +93,6 @@ class Model2(nn.Module):
         outputs.append(int(index))
         if decoder_input.item() == EOS_token:
             break
-  
+ 
     decoded_sentence = tokenizer.decode(outputs)
-    #print(decoded_sentence)
     return decoded_sentence
-
-  
