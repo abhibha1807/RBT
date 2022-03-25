@@ -32,13 +32,17 @@ class Architect(object):
     print('batch loss 1:', batch_loss)
     #Unrolled model
     theta = _concat(self.model1.parameters()).data
+    # print(theta, len(theta))
     try:
         moment = _concat(model1_optim.state[v]['momentum_buffer'] for v in self.model1.parameters()).mul_(self.model1_mom)
     except:
         moment = torch.zeros_like(theta)
+    # print(moment)
     dtheta = _concat(torch.autograd.grad(batch_loss, self.model1.parameters(), retain_graph = True )).data + self.model1_wd*theta
+    # print(dtheta)
     # convert to the model
     unrolled_model1 = self._construct_model1_from_theta(theta.sub(model1_lr, moment+dtheta))
+    #print(unrolled_enc)
     return unrolled_model1
 
 
@@ -47,6 +51,7 @@ class Architect(object):
   
     # create the new gpt model, input_lang, hidden_size, device
     model1_new = self.model1.new(self.vocab)
+    #print('model1 new:', model1_new)
 
     #encoder update
     params, offset = {}, 0
@@ -58,6 +63,7 @@ class Architect(object):
     assert offset == len(theta)
     model1_dict.update(params)
     model1_new.load_state_dict(model1_dict)
+    #print([model2_new.state_dict()])
     return model1_new
 
 
@@ -67,6 +73,7 @@ class Architect(object):
 
     # create the new gpt model, input_lang, hidden_size, device
     model2_new = self.model2.new(self.vocab)
+    # print('model2 new:', model2_new)
 
     #encoder update
     params, offset = {}, 0
@@ -78,6 +85,7 @@ class Architect(object):
     assert offset == len(theta)
     model2_dict.update(params)
     model2_new.load_state_dict(model2_dict)
+    #print([model2_new.state_dict()])
     return model2_new
   
   
@@ -95,7 +103,7 @@ class Architect(object):
           if grad is not None:
               l.append(grad)
           if grad is None:
-              l.append(torch.autograd.Variable(torch.zeros(p.size()).type(torch.float32),requires_grad=True).cuda())
+              l.append(torch.autograd.Variable(torch.zeros(p.size()).type(torch.float32),requires_grad=True).to(device))
       dtheta = _concat(l).data + self.model2_wd*theta
 
       # convert to the model
@@ -107,23 +115,29 @@ class Architect(object):
     R = r / _concat(vector).norm()
     for p, v in zip(self.model1.parameters(), vector):
       if v is None:
-          v=torch.autograd.Variable(torch.zeros(p.size()).type(torch.float32),requires_grad=True).cuda().data
+          #.cuda()
+          v=torch.autograd.Variable(torch.zeros(p.size()).type(torch.float32),requires_grad=True).to(device).data
       p.data.add_(R, v)
     loss = loss1(train_inputs, self.model1, idxs, self.A,  self.batch_size, self.vocab)
+    #print('loss:', loss)
     grads_p = torch.autograd.grad(loss, self.A.parameters())
+    #print('grads p:', grads_p)
   
 
     for p, v in zip(self.model1.parameters(), vector):
       if v is None:
-          v=torch.autograd.Variable(torch.zeros(p.size()).type(torch.float32),requires_grad=True).cuda().data
+          #.cuda()
+          v=torch.autograd.Variable(torch.zeros(p.size()).type(torch.float32),requires_grad=True).to(device).data
       p.data.sub_(2*R, v)
     loss = loss1(train_inputs, self.model1, idxs, self.A,  self.batch_size, self.vocab)
     grads_n = torch.autograd.grad(loss, self.A.parameters())
+    #print('grads n:', grads_n)
    
 
     for p, v in zip(self.model1.parameters(), vector):
       if v is None:
-          v=torch.autograd.Variable(torch.zeros(p.size()).type(torch.float32),requires_grad=True).cuda().data
+          #.cuda()
+          v=torch.autograd.Variable(torch.zeros(p.size()).type(torch.float32),requires_grad=True).to(device).data
       p.data.add_(R, v)
 
     return [(x-y).div_(2*R) for x, y in zip(grads_p, grads_n)]
@@ -141,17 +155,22 @@ class Architect(object):
     self.model1.train()
 
     loss_aug_p = loss2(un_inputs, unrolled_model1, self.model2, self.batch_size, self.vocab)
+    #print('loss aug p:', loss_aug_p)
     vector_dash = torch.autograd.grad(loss_aug_p, unrolled_model1.parameters(), retain_graph = True)
+    #print('vector dash:', vector_dash)
 
     grad_part1 = self._hessian_vector_product_A(vector_dash, train_inputs, idxs)
+    #print('grad_part1:', grad_part1)
 
     # minus W
     for p, v in zip(self.model2.parameters(), vector_s_dash):
         p.data.sub_(2*R1, v)
 
     loss_aug_m = loss2(un_inputs, unrolled_model1, self.model2,self.batch_size, self.vocab)
+    #print('loss aug m:', loss_aug_m)
     vector_dash = torch.autograd.grad(loss_aug_m, unrolled_model1.parameters(), retain_graph = True)
     grad_part2 = self._hessian_vector_product_A(vector_dash, train_inputs, idxs)
+    #print('grad_part2:', grad_part2)
 
     for p, v in zip(self.model2.parameters(), vector_s_dash):
       p.data.add_(R1, v)
@@ -183,19 +202,21 @@ class Architect(object):
        
         enc_hidden, enc_outputs = unrolled_model2.enc_forward(input_train)
         valid_loss = unrolled_model2.dec_forward(target_train, enc_hidden,enc_outputs) 
+        #print('valid loss:', valid_loss)
         valid_batch_loss += valid_loss
+      valid_batch_loss = valid_batch_loss/self.batch_size
       unrolled_model2.train()
       valid_batch_loss.backward()
 
-      vector_s_dash=[]
+      l=[]
       for p in unrolled_model2.parameters():
         grad=p.grad
         if grad is not None:
-            vector_s_dash.append(grad.data)
+            l.append(grad.data)
         if grad is None:
-            vector_s_dash.append(torch.autograd.Variable(torch.zeros(p.size()).type(torch.float32),requires_grad=True).cuda().data)
+            l.append(torch.autograd.Variable(torch.zeros(p.size()).type(torch.float32),requires_grad=True).to(device).data)
 
-      
+      vector_s_dash = l
       #update A
       implicit_grads_A = self._outer_A(vector_s_dash, train_inputs, un_inputs, idxs, unrolled_model1,
             unrolled_model2, model1_lr, model2_lr)
@@ -206,12 +227,13 @@ class Architect(object):
             v.grad = Variable(g.data)
         else:
             v.grad.data.copy_(g.data)
+      print('before A:', self.A)
       self.A_optim.step()
+      print('after A:', self.A)
 
       del unrolled_model1
 
       del unrolled_model2
 
       gc.collect()
-
-
+      return valid_batch_loss
