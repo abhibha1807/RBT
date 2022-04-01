@@ -1,3 +1,5 @@
+
+   
 import utils
 from torch.utils.data import DataLoader, RandomSampler
 from torch.autograd import Variable
@@ -29,10 +31,10 @@ print('using device', device)
 
 print('eecuting Attn Decoder')
 parser.add_argument('--begin_epoch', type=float, default=0, help='PC Method begin')
-parser.add_argument('--stop_epoch', type=float, default=50, help='Stop training on the framework')
+parser.add_argument('--stop_epoch', type=float, default=25, help='Stop training on the framework')
 parser.add_argument('--report_freq', type=float, default=10, help='report frequency')
 
-parser.add_argument('--epochs', type=int, default=300, help='num of training epochs')
+parser.add_argument('--epochs', type=int, default=100, help='num of training epochs')
 
 parser.add_argument('--batch_size', type=int, default=1, help='batch size')
 ####################################################################################
@@ -55,12 +57,14 @@ parser.add_argument('--train_portion', type=float, default=0.9, help='fraction o
 
 parser.add_argument('--un_portion', type=float, default=0.5, help='fraction of training dataset for creating unlabled dataset')
 
-parser.add_argument('--hidden_size', type=int, default=512, help='hidden size')
+parser.add_argument('--hidden_size', type=int, default=256, help='hidden size')
 
 parser.add_argument('--model1_lr', type=float, default=1e-3, help='model1 starting lr')
 parser.add_argument('--model1_lr_min', type=float, default=5e-4, help='model1 min lr')
 parser.add_argument('--model2_lr', type=float, default=1e-3, help='model2 starting lr')
 parser.add_argument('--model2_lr_min', type=float, default=5e-4, help='model2 min lr')
+
+
 
 #reduce lr
 # parser.add_argument('--model1_lr', type=float, default=1e-4, help='model1 starting lr')
@@ -72,8 +76,8 @@ parser.add_argument('--model1_wd', type=float, default=0, help='model1 weight de
 parser.add_argument('--model2_wd', type=float, default=0, help='model2 weight decay')
 # parser.add_argument('--model1_mom', type=float, default=0.9, help='model1 momentum')
 # parser.add_argument('--model2_mom', type=float, default=0.9, help='model2 momentum')
-parser.add_argument('--model1_mom', type=float, default=0.0, help='model1 momentum')
-parser.add_argument('--model2_mom', type=float, default=0.0, help='model2 momentum')
+parser.add_argument('--model1_mom', type=float, default=0.9, help='model1 momentum')
+parser.add_argument('--model2_mom', type=float, default=0.9, help='model2 momentum')
 
 parser.add_argument('--save', type=str, default='EXP', help='experiment name')
 
@@ -98,9 +102,9 @@ model2_wd = args.model2_wd
 model1_mom = args.model1_mom
 model2_mom = args.model2_mom
 A_wd = args.A_wd
-report_freq = args.report_freq
+report_freq = args.batch_size
 
-args.save = '{}-{}-beam'.format(args.save, time.strftime("%Y%m%d-%H%M%S"))
+args.save = '{}-{}-train-model1'.format(args.save, time.strftime("%Y%m%d-%H%M%S"))
 create_exp_dir(args.save, scripts_to_save=glob.glob('*.py'))
 print('saving in:', str(args.save))
 writer = SummaryWriter('runs/'+str(args.save))
@@ -136,23 +140,24 @@ tokenizer = get_tokenizer(pairs, max_length, min_freq, vocabsize, save_location)
 vocab = tokenizer.get_vocab_size()
 print('vocab:', vocab)
 criterion = nn.NLLLoss(ignore_index = tokenizer.token_to_id("[PAD]"), reduction='none')
-#criterion = nn.CrossEntropyLoss(ignore_index = tokenizer.token_to_id("[PAD]"),  reduction='mean')
+#criterion = nn.CrossEntropyLoss(ignore_index = tokenizer.token_to_id("[PAD]"),  reduction='none')
 criterion = criterion.to(device)
 model1 = Model1(vocab, vocab, criterion)
-model2 = Model2( vocab,  vocab, criterion)
+model2 = Model2( vocab, vocab, criterion)
 model1 = model1.to(device)
 model2 = model2.to(device)
-# model1_optim = SGD(model1.parameters(), lr=model1_lr, momentum=model1_mom,weight_decay=model1_wd)
-# model2_optim = SGD(model2.parameters(), lr=model2_lr, momentum=model1_mom,weight_decay=model1_wd)
+#momentum=model1_mom,weight_decay=model1_wd,  momentum=model1_mom,weight_decay=model1_wd
+# model1_optim = SGD(model1.parameters(), lr=model1_lr) #reduced to a value and stayed conbstant
+# model2_optim = SGD(model2.parameters(), lr=model2_lr)
 
-model1_optim = torch.optim.Adam(model1.parameters(),lr=model1_lr)
-model2_optim = torch.optim.Adam(model1.parameters(),lr=model1_lr)
+model1_optim = torch.optim.Adam(model1.parameters(),lr=model1_lr,weight_decay=model1_wd) #  loss decreased and then inc 
+model2_optim = torch.optim.Adam(model2.parameters(),lr=model1_lr, weight_decay=model1_wd)
 
 
 
-# scheduler_model1  = torch.optim.lr_scheduler.CosineAnnealingLR(model1_optim, float(args.epochs), eta_min=args.model1_lr_min)
+scheduler_model1  = torch.optim.lr_scheduler.CosineAnnealingLR(model1_optim, float(args.epochs), eta_min=args.model1_lr_min)
 
-# scheduler_model2  = torch.optim.lr_scheduler.CosineAnnealingLR(model2_optim, float(args.epochs), eta_min=args.model1_lr_min)
+scheduler_model2  = torch.optim.lr_scheduler.CosineAnnealingLR(model2_optim, float(args.epochs), eta_min=args.model1_lr_min)
 
 #split 80% train 10% val 10% test
 n = len(pairs)
@@ -173,7 +178,7 @@ logging.info('dataset')
 
 train_data = get_train_dataset(train_portion[0:10], tokenizer)
 un_data = get_un_dataset(un_portion[0:10], tokenizer)
-valid_data = get_valid_dataset(valid_portion[0:5], tokenizer)
+valid_data = get_valid_dataset(valid_portion[0:10], tokenizer)
 
 logging.info(f"{len(train_data):^7} | { len(un_data):^7} | { len(valid_data):^7}")
 
@@ -199,6 +204,7 @@ architect = Architect(model1, model1_mom, model1_wd, A, A_lr, A_wd, device, mode
 def train(epoch, train_dataloader, un_dataloader, valid_dataloader, architect, A, model1, model2, model1_optim, model2_optim, model1_lr, model2_lr, instances_gone):
 
 
+
   batch_loss_model1, batch_loss_model2, batch_count = 0, 0, 0
   valid_batch_loss = 0
 
@@ -213,42 +219,53 @@ def train(epoch, train_dataloader, un_dataloader, valid_dataloader, architect, A
     val_batch = next(iter(valid_dataloader)) 
     val_inputs = Variable(val_batch[0], requires_grad=False).to(device)
 
+    #print('\n', train_inputs, '\n')
    
 
 
     if args.begin_epoch <= epoch <= args.stop_epoch:
+      #logging.info('in architect')
       valid_batch_loss = architect.step(train_inputs, un_inputs, val_inputs, model1_lr, A, idxs, criterion, model2_lr, model2_optim, model1_optim)
   
     if epoch <= args.stop_epoch:
       
+      #logging.info('otherwise')
       model1_optim.zero_grad()
       loss_model1 = loss1(train_inputs, model1, idxs, A, batch_size, vocab)
+      print('training loss model1:', loss_model1)
       
       # store the batch loss
       batch_loss_model1 += loss_model1.item()
-
+     
       loss_model1.backward()
       print('model1 enc mbeding grad:', model1.enc.embedding.weight.grad.data.sum())
-      print('model1 dec attn grad:', model1.dec.attn.weight.grad)
-      print('model1 dec attn combine grad:', model1.dec.attn_combine.weight.grad)
+      print(list(model1.parameters())[0].grad)
+     
         
       
       nn.utils.clip_grad_norm_(model1.parameters(), args.grad_clip)
       
       model1_optim.step()
     
+     
+    
     model2_optim.zero_grad()
+    
     loss_model2 = loss2(un_inputs, model1, model2, batch_size, vocab)
     batch_loss_model2 += loss_model2.item()
+  
     loss_model2.backward()
+
     print('model2 enc embeding grad:', model2.enc.embedding.weight.grad.data.sum())
+    print(list(model2.parameters())[0].grad)
     
-    print('model2 dec attn grad:', model2.dec.attn.weight.grad)
-    print('model2 dec attn combine grad:', model2.dec.attn_combine.weight.grad)
-    #print('model2 dec gru grad:', model2.dec.gru.weight.grad)
+   
     nn.utils.clip_grad_norm_(model2.parameters(), args.grad_clip)
     model2_optim.step()
+   
 
+
+    # objs.update(loss_model2.item(), n)
     instances_gone+= batch_size
     '''
     :param target_tensor: target indexes tensor of shape [B, T] where B is the batch size and T is the maximum length of the output sentence
@@ -256,45 +273,9 @@ def train(epoch, train_dataloader, un_dataloader, valid_dataloader, architect, A
     :param encoder_outputs: if you are using attention mechanism you can pass encoder outputs, [T, B, H] where T is the maximum length of input sentence
     :return: decoded_batch
     '''
-    # if instances_gone % report_freq == 0:
-    #   n = val_inputs.size(0)
-      #val batch inputs
-     
-      # input_beam = val_inputs[0][0]
-      # target_beam = val_inputs[0][1]
-      # enc_hidden, enc_outputs = model2.enc_forward(input_beam)
-      # target_beam = torch.unsqueeze(target_beam, dim=0)
-      # enc_outputs = torch.unsqueeze(enc_outputs, dim=1)
-      # # print('target:', target_beam.size())
-      # # print('hidden:', enc_hidden.size())
-      # # print('encoder_outputs:', enc_outputs.size())
-      # decoded_batch = beam_decode(target_beam, enc_hidden, model2.dec, enc_outputs)
-      # print(decoded_batch)
-      # predicted = (tokenizer.decode((decoded_batch[0][0])))
-      # print('tok decode pred:', predicted)
-      # #predicted = pad_sentences(predicted)
-      # length_pred = len(predicted.split(' '))
-      # # actual = tokenizer.decode(list((test_inputs[1])))
-      # actual = tokenizer.decode(list((torch.squeeze(target_beam, dim=0))))
-      # print('tok decode actual :', actual)
-      # length_actual = len(actual.split(' '))
-      # print('len pred:', length_pred)
-      # print('len actual:', length_actual)
-      # if length_pred>length_actual:
-      #   actual = pad_sentences(actual, length_pred)
-      # else:
-      #   predicted = pad_sentences(predicted, length_actual)
-      # predicted = predicted.split(' ')
-      # actual = actual.split(' ')
-      # print('\n')
-      # print('predicted:', predicted)
-      # print('actual:', actual)
-      # print(bleu_score(predicted, actual))
-
-    
-    
    
-
+    
+    
     if instances_gone % report_freq == 0:
  
       print('-'*40+'training batch stats after'+str(instances_gone)+'instances'+'-'*40)
@@ -353,6 +334,7 @@ def infer(valid_dataloader, model2, instances_gone):
         print('validation epoch loss:' + str(valid_loss))
         logging.info('*'*20 + 'validation stats after'+ str(instances_gone) + 'instances' +'*'*20)
         logging.info('validation epoch loss:' + str(valid_loss))
+    # break
   return epoch_val_loss
   
 
@@ -370,25 +352,24 @@ for epoch in range(start_epoch, args.epochs):
     instances_gone_train = 0
     instances_gone_val = 0
 
-    # model1_lr = scheduler_model1.get_lr()[0]
+    model1_lr = scheduler_model1.get_lr()[0]
 
-    # model2_lr = scheduler_model2.get_lr()[0]
+    model2_lr = scheduler_model2.get_lr()[0]
 
 
-    logging.info(str(('epoch %d lr model1 %e lr model2 %e', epoch, model1_lr, model1_lr)))
+    logging.info(str(('epoch %d lr model1 %e lr model2 %e', epoch, model1_lr, model2_lr)))
 
     #training
     epoch_loss_model1, epoch_loss_model2 = train(epoch, train_dataloader, un_dataloader, valid_dataloader, 
         architect, A, model1, model2,  model1_optim, model2_optim, model1_lr, model2_lr,instances_gone_train)
     
-  
+   
     print('+'*20+'TRAIN EPOCH STATS'+'+'*20)
     print(str(epoch_loss_model1), str(epoch_loss_model2))
     logging.info('+'*20+'TRAIN EPOCH STATS'+'+'*20)
     logging.info(str(epoch_loss_model1)+'  '+str(epoch_loss_model2))
 
-    # logging.info('+'*20+'TRAIN EPOCH STATS'+'+'*20)
-    # logging.info(str(valid_batch_loss))
+   
     
     
     logging.info('\n')
@@ -403,14 +384,12 @@ for epoch in range(start_epoch, args.epochs):
     writer.add_scalar('TrainLoss/model2', epoch_loss_model2, epoch)
     writer.add_scalar('ValLoss/model2', epoch_val_loss, epoch)
     
-    # scheduler_model1.step()
+    scheduler_model1.step()
     
-    # scheduler_model2.step()
+    scheduler_model2.step()
     
     
-    # logging.info(str(('train_loss_model1 %e train_loss_model2 %e', epoch_loss_model1, epoch_loss_model2)))
-    # logging.info(str(('val_loss_model2 %e', epoch_loss_model2)))
-
+   
     ################################################################################################
 
    
@@ -423,3 +402,4 @@ for epoch in range(start_epoch, args.epochs):
         logging.info(str(("Attention Weights A : ", A.alpha)))
     # break
     
+
