@@ -62,7 +62,9 @@ class Architect(object):
   def _construct_model1_from_theta(self, theta):
     model1_dict = self.model1.state_dict()
   
+    # create the new gpt model, input_lang, hidden_size, device
     model1_new = self.model1.new(self.vocab)
+    #print('model1 new:', model1_new)
 
     #encoder update
     params, offset = {}, 0
@@ -74,6 +76,7 @@ class Architect(object):
     assert offset == len(theta)
     model1_dict.update(params)
     model1_new.load_state_dict(model1_dict)
+    #print([model2_new.state_dict()])
     return model1_new
 
 
@@ -83,6 +86,7 @@ class Architect(object):
 
     # create the new gpt model, input_lang, hidden_size, device
     model2_new = self.model2.new(self.vocab)
+    # print('model2 new:', model2_new)
 
     #encoder update
     params, offset = {}, 0
@@ -94,6 +98,7 @@ class Architect(object):
     assert offset == len(theta)
     model2_dict.update(params)
     model2_new.load_state_dict(model2_dict)
+    #print([model2_new.state_dict()])
     return model2_new
   
   
@@ -130,6 +135,7 @@ class Architect(object):
     loss = loss1(train_inputs, self.model1, idxs, self.A,  self.batch_size, self.vocab)
     #print('loss:', loss)
     grads_p = torch.autograd.grad(loss, self.A.parameters())
+    #print('grads p:', grads_p)
   
 
     for p, v in zip(self.model1.parameters(), vector):
@@ -163,17 +169,22 @@ class Architect(object):
     self.model1.train()
 
     loss_aug_p = loss2(un_inputs, unrolled_model1, self.model2, self.batch_size, self.vocab)
+    #print('loss aug p:', loss_aug_p)
     vector_dash = torch.autograd.grad(loss_aug_p, unrolled_model1.parameters(), retain_graph = True, allow_unused=True)
+    #print('vector dash:', vector_dash)
 
     grad_part1 = self._hessian_vector_product_A(vector_dash, train_inputs, idxs)
+    #print('grad_part1:', grad_part1)
 
     # minus W
     for p, v in zip(self.model2.parameters(), vector_s_dash):
         p.data.sub_(2*R1, v)
 
     loss_aug_m = loss2(un_inputs, unrolled_model1, self.model2,self.batch_size, self.vocab)
+    #print('loss aug m:', loss_aug_m)
     vector_dash = torch.autograd.grad(loss_aug_m, unrolled_model1.parameters(), retain_graph = True, allow_unused=True)
     grad_part2 = self._hessian_vector_product_A(vector_dash, train_inputs, idxs)
+    #print('grad_part2:', grad_part2)
 
     for p, v in zip(self.model2.parameters(), vector_s_dash):
       p.data.add_(R1, v)
@@ -199,12 +210,13 @@ class Architect(object):
       print('computed unrolled model2')
       valid_batch_loss = 0
       #val batch inputs
-      for i in range(self.batch_size):
+      for i in range(val_inputs.size(0)):
         input_train = val_inputs[i][0]
         target_train = val_inputs[i][1]
        
         enc_hidden, enc_outputs = unrolled_model2.enc_forward(input_train)
         valid_loss = unrolled_model2.dec_forward(target_train, enc_hidden,enc_outputs) 
+        #print('valid loss:', valid_loss)
         valid_batch_loss += valid_loss
       valid_batch_loss = valid_batch_loss/self.batch_size
       unrolled_model2.train()
@@ -229,8 +241,9 @@ class Architect(object):
             v.grad = Variable(g.data)
         else:
             v.grad.data.copy_(g.data)
-     
+      print('before A:', self.A)
       self.A_optim.step()
+      print('after A:', self.A)
 
       del unrolled_model1
 
