@@ -31,12 +31,12 @@ print('using device', device)
 
 print('eecuting Attn Decoder')
 parser.add_argument('--begin_epoch', type=float, default=0, help='PC Method begin')
-parser.add_argument('--stop_epoch', type=float, default=25, help='Stop training on the framework')
+parser.add_argument('--stop_epoch', type=float, default=5, help='Stop training on the framework')
 parser.add_argument('--report_freq', type=float, default=10, help='report frequency')
 
-parser.add_argument('--epochs', type=int, default=100, help='num of training epochs')
+parser.add_argument('--epochs', type=int, default=20, help='num of training epochs')
 
-parser.add_argument('--batch_size', type=int, default=1, help='batch size')
+parser.add_argument('--batch_size', type=int, default=96, help='batch size')
 ####################################################################################
 parser.add_argument('--grad_clip', type=float, default=5, help='gradient clipping')
 parser.add_argument('--A_lr', type=float, default=3e-4, help='learning rate for A')
@@ -61,23 +61,17 @@ parser.add_argument('--hidden_size', type=int, default=256, help='hidden size')
 
 parser.add_argument('--model1_lr', type=float, default=1e-3, help='model1 starting lr')
 parser.add_argument('--model1_lr_min', type=float, default=5e-4, help='model1 min lr')
-parser.add_argument('--model2_lr', type=float, default=1e-3, help='model2 starting lr')
-parser.add_argument('--model2_lr_min', type=float, default=5e-4, help='model2 min lr')
+parser.add_argument('--model2_lr', type=float, default=1e-8, help='model2 starting lr')
+parser.add_argument('--model2_lr_min', type=float, default=5e-9, help='model2 min lr')
 
 
-
-#reduce lr
-# parser.add_argument('--model1_lr', type=float, default=1e-4, help='model1 starting lr')
-# parser.add_argument('--model1_lr_min', type=float, default=5e-6, help='model1 min lr')
-# parser.add_argument('--model2_lr', type=float, default=1e-7, help='model2 starting lr')
-# parser.add_argument('--model2_lr_min', type=float, default=5e-6, help='model2 min lr')
 
 parser.add_argument('--model1_wd', type=float, default=0, help='model1 weight decay')
 parser.add_argument('--model2_wd', type=float, default=0, help='model2 weight decay')
 # parser.add_argument('--model1_mom', type=float, default=0.9, help='model1 momentum')
 # parser.add_argument('--model2_mom', type=float, default=0.9, help='model2 momentum')
-parser.add_argument('--model1_mom', type=float, default=0.9, help='model1 momentum')
-parser.add_argument('--model2_mom', type=float, default=0.9, help='model2 momentum')
+parser.add_argument('--model1_mom', type=float, default=0.0, help='model1 momentum')
+parser.add_argument('--model2_mom', type=float, default=0.0, help='model2 momentum')
 
 parser.add_argument('--save', type=str, default='EXP', help='experiment name')
 
@@ -104,7 +98,7 @@ model2_mom = args.model2_mom
 A_wd = args.A_wd
 report_freq = args.batch_size
 
-args.save = '{}-{}-train-model1'.format(args.save, time.strftime("%Y%m%d-%H%M%S"))
+args.save = '{}-{}-e8-bs96-ep5'.format(args.save, time.strftime("%Y%m%d-%H%M%S"))
 create_exp_dir(args.save, scripts_to_save=glob.glob('*.py'))
 print('saving in:', str(args.save))
 writer = SummaryWriter('runs/'+str(args.save))
@@ -143,15 +137,14 @@ criterion = nn.NLLLoss(ignore_index = tokenizer.token_to_id("[PAD]"), reduction=
 #criterion = nn.CrossEntropyLoss(ignore_index = tokenizer.token_to_id("[PAD]"),  reduction='none')
 criterion = criterion.to(device)
 model1 = Model1(vocab, vocab, criterion)
-model2 = Model2( vocab, vocab, criterion)
+model2 = Model2(vocab, vocab, criterion)
 model1 = model1.to(device)
 model2 = model2.to(device)
 #momentum=model1_mom,weight_decay=model1_wd,  momentum=model1_mom,weight_decay=model1_wd
-# model1_optim = SGD(model1.parameters(), lr=model1_lr) #reduced to a value and stayed conbstant
-# model2_optim = SGD(model2.parameters(), lr=model2_lr)
+
 
 model1_optim = torch.optim.Adam(model1.parameters(),lr=model1_lr,weight_decay=model1_wd) #  loss decreased and then inc 
-model2_optim = torch.optim.Adam(model2.parameters(),lr=model1_lr, weight_decay=model1_wd)
+model2_optim = torch.optim.Adam(model2.parameters(),lr=model2_lr, weight_decay=model2_wd)
 
 
 
@@ -176,9 +169,9 @@ print(len(train_portion), len(un_portion), len(valid_portion))
 logging.info('dataset')
 
 
-train_data = get_train_dataset(train_portion[0:10], tokenizer)
-un_data = get_un_dataset(un_portion[0:10], tokenizer)
-valid_data = get_valid_dataset(valid_portion[0:10], tokenizer)
+train_data = get_train_dataset(train_portion[0:2000], tokenizer)
+un_data = get_un_dataset(un_portion[0:2000], tokenizer)
+valid_data = get_valid_dataset(valid_portion[0:50], tokenizer)
 
 logging.info(f"{len(train_data):^7} | { len(un_data):^7} | { len(valid_data):^7}")
 
@@ -204,14 +197,16 @@ architect = Architect(model1, model1_mom, model1_wd, A, A_lr, A_wd, device, mode
 def train(epoch, train_dataloader, un_dataloader, valid_dataloader, architect, A, model1, model2, model1_optim, model2_optim, model1_lr, model2_lr, instances_gone):
 
 
-
   batch_loss_model1, batch_loss_model2, batch_count = 0, 0, 0
   valid_batch_loss = 0
+  model1_score, model2_score = 0, 0
+  
 
     
   for step, batch in enumerate(train_dataloader):
     model1.train()
     model2.train()
+    #summary_bart = Variable(batch[2], requires_grad=False).cuda()
     train_inputs = Variable(batch[0], requires_grad=False).to(device) #train inputs.
     idxs = Variable(batch[1],requires_grad=False).to(device) #A
     un_batch = next(iter(un_dataloader)) 
@@ -219,7 +214,6 @@ def train(epoch, train_dataloader, un_dataloader, valid_dataloader, architect, A
     val_batch = next(iter(valid_dataloader)) 
     val_inputs = Variable(val_batch[0], requires_grad=False).to(device)
 
-    #print('\n', train_inputs, '\n')
    
 
 
@@ -236,36 +230,23 @@ def train(epoch, train_dataloader, un_dataloader, valid_dataloader, architect, A
       
       # store the batch loss
       batch_loss_model1 += loss_model1.item()
-     
       loss_model1.backward()
-      print('model1 enc mbeding grad:', model1.enc.embedding.weight.grad.data.sum())
-      print(list(model1.parameters())[0].grad)
-     
-        
-      
       nn.utils.clip_grad_norm_(model1.parameters(), args.grad_clip)
-      
       model1_optim.step()
     
-     
     
     model2_optim.zero_grad()
     
     loss_model2 = loss2(un_inputs, model1, model2, batch_size, vocab)
     batch_loss_model2 += loss_model2.item()
-  
     loss_model2.backward()
-
-    print('model2 enc embeding grad:', model2.enc.embedding.weight.grad.data.sum())
-    print(list(model2.parameters())[0].grad)
-    
-   
+  
     nn.utils.clip_grad_norm_(model2.parameters(), args.grad_clip)
     model2_optim.step()
-   
+ 
+  
+    
 
-
-    # objs.update(loss_model2.item(), n)
     instances_gone+= batch_size
     '''
     :param target_tensor: target indexes tensor of shape [B, T] where B is the batch size and T is the maximum length of the output sentence
@@ -273,18 +254,18 @@ def train(epoch, train_dataloader, un_dataloader, valid_dataloader, architect, A
     :param encoder_outputs: if you are using attention mechanism you can pass encoder outputs, [T, B, H] where T is the maximum length of input sentence
     :return: decoded_batch
     '''
-   
-    
-    
+
+      
+
     if instances_gone % report_freq == 0:
  
       print('-'*40+'training batch stats after'+str(instances_gone)+'instances'+'-'*40)
       print('Epoch:'+str(epoch)+'batch_loss_model2:'+str(loss_model2))
     
       print("-"*70)
-      model1_score, pred_model1, actual_model1 = get_bleu_score(model1,val_inputs[0], tokenizer, vocab)
-      model2_score, pred_model2, actual_model2 = get_bleu_score(model2,val_inputs[0], tokenizer, vocab)
-      print('\n lets look at predictions and scores \n')
+      model1_score, pred_model1, actual_model1 = get_bleu_score(model1,train_inputs[0], tokenizer, vocab)
+      model2_score, pred_model2, actual_model2 = get_bleu_score(model2,train_inputs[0], tokenizer, vocab)
+      print('\n lets look at predictions and scores for training \n')
       logging.info('actual model1'+ str(actual_model1))
       logging.info('predicted model1'+ str(pred_model1))
       logging.info('\n')
@@ -293,19 +274,21 @@ def train(epoch, train_dataloader, un_dataloader, valid_dataloader, architect, A
       logging.info('\n')
       logging.info('model1_score'+ str(model1_score))
       logging.info('model2_score'+ str(model2_score))
+     
     # break
 
-  return batch_loss_model1, batch_loss_model2
+  return batch_loss_model1, batch_loss_model2, model1_score, model2_score
+  #return valid_batch_loss
 
       
 def infer(valid_dataloader, model2, instances_gone):
 
- 
+  model2_score = 0
   
   softmax = torch.nn.Softmax(-1)
 
   for step, batch_val in enumerate(valid_dataloader):
-      
+    
     model2.eval()
     
     # Input and its attentions
@@ -334,15 +317,21 @@ def infer(valid_dataloader, model2, instances_gone):
         print('validation epoch loss:' + str(valid_loss))
         logging.info('*'*20 + 'validation stats after'+ str(instances_gone) + 'instances' +'*'*20)
         logging.info('validation epoch loss:' + str(valid_loss))
-    # break
-  return epoch_val_loss
+        print("-"*70)
+        model2_score, pred_model2, actual_model2 = get_bleu_score(model2,val_inputs[0], tokenizer, vocab)
+        print('\n lets look at predictions and scores for validation \n')
+        logging.info('actual model2'+ str(actual_model2))
+        logging.info('predicted model2'+ str(pred_model2))
+        logging.info('\n')
+        logging.info('model2_score'+ str(model2_score))
+        
+  return epoch_val_loss, model2_score
   
 
     
      
       
 
-#  early_stopping = EarlyStopping(path = args.save)
 
 start_epoch = 0
 
@@ -360,21 +349,22 @@ for epoch in range(start_epoch, args.epochs):
     logging.info(str(('epoch %d lr model1 %e lr model2 %e', epoch, model1_lr, model2_lr)))
 
     #training
-    epoch_loss_model1, epoch_loss_model2 = train(epoch, train_dataloader, un_dataloader, valid_dataloader, 
+    epoch_loss_model1, epoch_loss_model2, model1_score, model2_score = train(epoch, train_dataloader, un_dataloader, valid_dataloader, 
         architect, A, model1, model2,  model1_optim, model2_optim, model1_lr, model2_lr,instances_gone_train)
     
-   
+  
+    
     print('+'*20+'TRAIN EPOCH STATS'+'+'*20)
     print(str(epoch_loss_model1), str(epoch_loss_model2))
     logging.info('+'*20+'TRAIN EPOCH STATS'+'+'*20)
     logging.info(str(epoch_loss_model1)+'  '+str(epoch_loss_model2))
 
-   
-    
+
     
     logging.info('\n')
 
-    epoch_val_loss = infer(valid_dataloader, model2, instances_gone_val)
+
+    epoch_val_loss, model2_score_val = infer(valid_dataloader, model2, instances_gone_val)
     print('+'*20+'VAL EPOCH STATS'+'+'*20)
     print(str(epoch_val_loss))
     logging.info('+'*20+'VAL EPOCH STATS'+'+'*20)
@@ -383,15 +373,15 @@ for epoch in range(start_epoch, args.epochs):
     writer.add_scalar('TrainLoss/model1', epoch_loss_model1, epoch)
     writer.add_scalar('TrainLoss/model2', epoch_loss_model2, epoch)
     writer.add_scalar('ValLoss/model2', epoch_val_loss, epoch)
+    writer.add_scalar('TrainBleu/model1', model1_score, epoch)
+    writer.add_scalar('TrainBleu/model2', model2_score, epoch)
+    writer.add_scalar('ValBleu/model2', model2_score_val, epoch)
     
     scheduler_model1.step()
     
     scheduler_model2.step()
     
     
-   
-    ################################################################################################
-
    
     # logging info
     # logging.info the attention weights and inspect it
@@ -400,6 +390,7 @@ for epoch in range(start_epoch, args.epochs):
         torch.save(model1, args.save+'/model1.pt')
         torch.save(model2, args.save+'/model2.pt')
         logging.info(str(("Attention Weights A : ", A.alpha)))
+        print('saving in:', str(args.save))
     # break
     
 
