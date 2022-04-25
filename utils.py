@@ -1,6 +1,9 @@
+# https://huggingface.co/transformers/v3.3.1/_modules/transformers/modeling_fsmt.html embed scale from here 
 from torchtext.data.metrics import bleu_score
 from model2 import *
 import os
+from nltk.translate.bleu_score import SmoothingFunction
+from nltk.translate import bleu
 import shutil
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # device = "cuda"
@@ -11,6 +14,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from queue import PriorityQueue
 
+chencherry = SmoothingFunction()
+
 SOS_token = 0
 EOS_token = 1
 MAX_LENGTH = 10
@@ -20,19 +25,23 @@ def pad_sentences(sentence, length):
   while len(s)<=length:
     s.append('<PAD>')
   print(s)
-
+#   return ' '.join(s)
   return s
   
 
 def get_bleu_score(model,test_inputs, tokenizer, vocab):
     predicted = model.generate(test_inputs[0], tokenizer, vocab)
     actual = tokenizer.decode(list((test_inputs[1])))
-    
+    # predicted = tokenizer.padding(predicted, max_length = MAX_LENGTH)
+    # actual = tokenizer.padding(actual, max_length = MAX_LENGTH)
     predicted = pad_sentences(predicted, MAX_LENGTH)
     actual = pad_sentences(actual,MAX_LENGTH)
 
-  
-    return bleu_score(predicted, actual), ' '.join(predicted), ' '.join(actual)
+    print('predicted sentence:', predicted)
+    print('actual sentence:', actual)
+    print('bleu score:', bleu(actual, predicted, smoothing_function=chencherry.method1))
+
+    return bleu(actual, predicted, smoothing_function=chencherry.method1), predicted, actual
 
 def create_exp_dir(path, scripts_to_save=None):
   if not os.path.exists(path):
@@ -76,9 +85,9 @@ class BeamSearchNode(object):
         return self.logp < other.logp
 
 
+# decoder = DecoderRNN()
 
 
-# from: https://github.com/budzianowski/PyTorch-Beam-Search-Decoding/blob/master/decode_beam.py
 def beam_decode(target_tensor, decoder_hiddens, decoder, encoder_outputs=None):
     '''
     :param target_tensor: target indexes tensor of shape [B, T] where B is the batch size and T is the maximum length of the output sentence
@@ -172,3 +181,4 @@ def beam_decode(target_tensor, decoder_hiddens, decoder, encoder_outputs=None):
         decoded_batch.append(utterances)
 
     return decoded_batch
+
